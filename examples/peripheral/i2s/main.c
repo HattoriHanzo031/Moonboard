@@ -138,7 +138,6 @@ void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s)
 int main(void)
 {
     uint32_t err_code = NRF_SUCCESS;
-	uint32_t* buffer = m_buffer_tx;
 	int i;
 
     bsp_board_init(BSP_INIT_NONE);
@@ -155,21 +154,10 @@ int main(void)
     config.channels  = NRF_I2S_CHANNELS_STEREO;
     err_code = nrf_drv_i2s_init(&config, data_handler);
     APP_ERROR_CHECK(err_code);
-#if 0
-	for (i=0; i<NUM_LEDS; i++) {
-		uint32_t rgb = 0x00000001 << ((i%3)*8);
-		buffer+=3;
-		rgb_to_i2s(rgb, buffer);
-	}
-#else
+
 	for (i=1; i<=NUM_LEDS; i++) {
 		set_led(i, COLOR_NONE);
 	}
-#endif
-
-	buffer=&(m_buffer_tx[(NUM_LEDS)*3]);
-	for (i=0; i<RESET_BITS; i++)
-		*buffer++ = 0x00000000;
 
 	set_led(1, COLOR_RED);
 	set_led(3, COLOR_BLUE);
