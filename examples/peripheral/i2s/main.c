@@ -81,6 +81,9 @@ static inline
 void set_led(uint8_t _led, uint32_t _color);
 void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s);
 
+void parse_input(const char* _input);
+void parse_led_command(const char* _input);
+
 static void data_handler(nrf_drv_i2s_buffers_t const * p_released,
                          uint32_t                      status)
 {
@@ -135,6 +138,58 @@ void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s)
 	}
 }
 
+void parse_input(const char* _input)
+{
+	switch (_input[0]) {
+		case '1':
+			if(_input[1] != '#')
+				return;
+			parse_led_command(&(_input[2]));
+			break;
+		default:
+			return;
+	}
+}
+
+void parse_led_command(const char* _input)
+{
+	uint8_t led = 0;
+	uint32_t color;
+
+	while (*_input != '\0') {
+		switch (*_input) {
+			case 'S':
+				color = COLOR_GREEN;
+				break;
+			case 'P':
+				color = COLOR_BLUE;
+				break;
+			case 'E':
+				color = COLOR_RED;
+				break;
+			default:
+				return;
+		}
+
+		_input++;
+		while (*_input != ',' && *_input != '#') {
+			if (*_input < '0' || *_input > '9' || *_input == '\0')
+				return;
+
+			led *= 10;
+			led += *_input - '0';
+			_input++;
+		}
+
+		if (led == 0 || led > NUM_LEDS)
+			return;
+
+		set_led(led, color);
+		led = 0;
+		_input++;
+	}
+}
+
 int main(void)
 {
     uint32_t err_code = NRF_SUCCESS;
@@ -162,6 +217,8 @@ int main(void)
 	set_led(1, COLOR_RED);
 	set_led(3, COLOR_BLUE);
 	set_led(5, COLOR_GREEN);
+
+	parse_input("1#S19,S37,P38,P101,E102#");
 
     for (;;) {
         nrf_drv_i2s_buffers_t const initial_buffers = {
