@@ -167,9 +167,9 @@ int main(void)
 	}
 #endif
 
-	buffer=&(m_buffer_tx[(NUM_LEDS+1)*3]);
+	buffer=&(m_buffer_tx[(NUM_LEDS)*3]);
 	for (i=0; i<RESET_BITS; i++)
-		*buffer++ = 0x88888888;
+		*buffer++ = 0x00000000;
 
 	set_led(1, COLOR_RED);
 	set_led(3, COLOR_BLUE);
