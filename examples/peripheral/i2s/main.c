@@ -58,127 +58,33 @@
 #include "nrf_log_ctrl.h"
 #include "nrf_log_default_backends.h"
 
-#define LED_OK      BSP_BOARD_LED_0
-#define LED_ERROR   BSP_BOARD_LED_1
-
-#define I2S_DATA_BLOCK_WORDS    512
-static uint32_t m_buffer_rx[2][I2S_DATA_BLOCK_WORDS];
-static uint32_t m_buffer_tx[2][I2S_DATA_BLOCK_WORDS];
-
 // Delay time between consecutive I2S transfers performed in the main loop
 // (in milliseconds).
-#define PAUSE_TIME          500
+#define PAUSE_TIME          2000
 // Number of blocks of data to be contained in each transfer.
 #define BLOCKS_TO_TRANSFER  20
 
-static uint8_t volatile m_blocks_transferred     = 0;
-static uint8_t          m_zero_samples_to_ignore = 0;
-static uint16_t         m_sample_value_to_send;
-static uint16_t         m_sample_value_expected;
-static bool             m_error_encountered;
+#define COLOR_BRIGHTNESS 	0x01
+#define COLOR_NONE			0x00000000
+#define COLOR_GREEN			COLOR_BRIGHTNESS << 0
+#define COLOR_RED			COLOR_BRIGHTNESS << 8
+#define COLOR_BLUE			COLOR_BRIGHTNESS << 16
 
-static uint32_t       * volatile mp_block_to_fill  = NULL;
-static uint32_t const * volatile mp_block_to_check = NULL;
+#define RESET_BITS 6
+#define NUM_LEDS (18*11)
+#define I2S_DATA_BLOCK_WORDS    ((NUM_LEDS*3) + RESET_BITS)
 
+static uint32_t m_buffer_tx[I2S_DATA_BLOCK_WORDS];
+static uint32_t m_blocks_transferred;
 
-static void prepare_tx_data(uint32_t * p_block)
-{
-    // These variables will be both zero only at the very beginning of each
-    // transfer, so we use them as the indication that the re-initialization
-    // should be performed.
-    if (m_blocks_transferred == 0 && m_zero_samples_to_ignore == 0)
-    {
-        // Number of initial samples (actually pairs of L/R samples) with zero
-        // values that should be ignored - see the comment in 'check_samples'.
-        m_zero_samples_to_ignore = 2;
-        m_sample_value_to_send   = 0xCAFE;
-        m_sample_value_expected  = 0xCAFE;
-        m_error_encountered      = false;
-    }
-
-    // [each data word contains two 16-bit samples]
-    uint16_t i;
-    for (i = 0; i < I2S_DATA_BLOCK_WORDS; ++i)
-    {
-        uint16_t sample_l = m_sample_value_to_send - 1;
-        uint16_t sample_r = m_sample_value_to_send + 1;
-        ++m_sample_value_to_send;
-
-        uint32_t * p_word = &p_block[i];
-        ((uint16_t *)p_word)[0] = sample_l;
-        ((uint16_t *)p_word)[1] = sample_r;
-    }
-}
-
-
-static bool check_samples(uint32_t const * p_block)
-{
-    // [each data word contains two 16-bit samples]
-    uint16_t i;
-    for (i = 0; i < I2S_DATA_BLOCK_WORDS; ++i)
-    {
-        uint32_t const * p_word = &p_block[i];
-        uint16_t actual_sample_l = ((uint16_t const *)p_word)[0];
-        uint16_t actual_sample_r = ((uint16_t const *)p_word)[1];
-
-        // Normally a couple of initial samples sent by the I2S peripheral
-        // will have zero values, because it starts to output the clock
-        // before the actual data is fetched by EasyDMA. As we are dealing
-        // with streaming the initial zero samples can be simply ignored.
-        if (m_zero_samples_to_ignore > 0 &&
-            actual_sample_l == 0 &&
-            actual_sample_r == 0)
-        {
-            --m_zero_samples_to_ignore;
-        }
-        else
-        {
-            m_zero_samples_to_ignore = 0;
-
-            uint16_t expected_sample_l = m_sample_value_expected - 1;
-            uint16_t expected_sample_r = m_sample_value_expected + 1;
-            ++m_sample_value_expected;
-
-            if (actual_sample_l != expected_sample_l ||
-                actual_sample_r != expected_sample_r)
-            {
-                NRF_LOG_INFO("%3u: %04x/%04x, expected: %04x/%04x (i: %u)",
-                    m_blocks_transferred, actual_sample_l, actual_sample_r,
-                    expected_sample_l, expected_sample_r, i);
-                return false;
-            }
-        }
-    }
-    NRF_LOG_INFO("%3u: OK", m_blocks_transferred);
-    return true;
-}
-
-
-static void check_rx_data(uint32_t const * p_block)
-{
-    ++m_blocks_transferred;
-
-    if (!m_error_encountered)
-    {
-        m_error_encountered = !check_samples(p_block);
-    }
-
-    if (m_error_encountered)
-    {
-        bsp_board_led_off(LED_OK);
-        bsp_board_led_invert(LED_ERROR);
-    }
-    else
-    {
-        bsp_board_led_off(LED_ERROR);
-        bsp_board_led_invert(LED_OK);
-    }
-}
-
+static inline
+void set_led(uint8_t _led, uint32_t _color);
+void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s);
 
 static void data_handler(nrf_drv_i2s_buffers_t const * p_released,
                          uint32_t                      status)
 {
+	//static uint32_t tmp = 1;
     // 'nrf_drv_i2s_next_buffers_set' is called directly from the handler
     // each time next buffers are requested, so data corruption is not
     // expected.
@@ -187,88 +93,94 @@ static void data_handler(nrf_drv_i2s_buffers_t const * p_released,
     // When the handler is called after the transfer has been stopped
     // (no next buffers are needed, only the used buffers are to be
     // released), there is nothing to do.
-    if (!(status & NRFX_I2S_STATUS_NEXT_BUFFERS_NEEDED))
-    {
+    if (!(status & NRFX_I2S_STATUS_NEXT_BUFFERS_NEEDED)) {
         return;
     }
 
-    // First call of this handler occurs right after the transfer is started.
-    // No data has been transferred yet at this point, so there is nothing to
-    // check. Only the buffers for the next part of the transfer should be
-    // provided.
-    if (!p_released->p_rx_buffer)
-    {
-        nrf_drv_i2s_buffers_t const next_buffers = {
-            .p_rx_buffer = m_buffer_rx[1],
-            .p_tx_buffer = m_buffer_tx[1],
-        };
-        APP_ERROR_CHECK(nrf_drv_i2s_next_buffers_set(&next_buffers));
-
-        mp_block_to_fill = m_buffer_tx[1];
-    }
-    else
-    {
-        mp_block_to_check = p_released->p_rx_buffer;
-        // The driver has just finished accessing the buffers pointed by
-        // 'p_released'. They can be used for the next part of the transfer
-        // that will be scheduled now.
-        APP_ERROR_CHECK(nrf_drv_i2s_next_buffers_set(p_released));
-
-        // The pointer needs to be typecasted here, so that it is possible to
-        // modify the content it is pointing to (it is marked in the structure
-        // as pointing to constant data because the driver is not supposed to
-        // modify the provided data).
-        mp_block_to_fill = (uint32_t *)p_released->p_tx_buffer;
-    }
+	//rgb_to_i2s(tmp++, (uint32_t*)p_released->p_tx_buffer);
+    APP_ERROR_CHECK(nrf_drv_i2s_next_buffers_set(p_released));
+	m_blocks_transferred++;
 }
 
 
 void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)
 {
-    bsp_board_leds_on();
     app_error_save_and_stop(id, pc, info);
 }
 
+static inline
+void set_led(uint8_t _led, uint32_t _color)
+{
+	rgb_to_i2s(_color, &(m_buffer_tx[(_led-1)*3]));
+}
+
+void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s)
+{
+	int i;
+	uint32_t mask = 0x000F0F0F;
+	uint32_t tmp;
+
+	_i2s[0] = 0;
+	_i2s[1] = 0;
+	_i2s[2] = 0;
+
+	tmp = _rgb & (~mask);
+	mask = _rgb & mask;
+	_rgb = (tmp >> 4) | (mask << 4);
+
+	mask = 1;
+	for (i=0; i<24; i++) {
+		_i2s[i/8u] += ((_rgb & mask) ? 0xe : 0x8) << ((i%8u)*4);
+		mask = mask << 1;
+	}
+}
 
 int main(void)
 {
     uint32_t err_code = NRF_SUCCESS;
+	uint32_t* buffer = m_buffer_tx;
+	int i;
 
-    bsp_board_init(BSP_INIT_LEDS);
-
-    err_code = NRF_LOG_INIT(NULL);
-    APP_ERROR_CHECK(err_code);
-
-    NRF_LOG_DEFAULT_BACKENDS_INIT();
-
-    NRF_LOG_INFO("I2S loopback example started.");
+    bsp_board_init(BSP_INIT_NONE);
 
     nrf_drv_i2s_config_t config = NRF_DRV_I2S_DEFAULT_CONFIG;
     // In Master mode the MCK frequency and the MCK/LRCK ratio should be
     // set properly in order to achieve desired audio sample rate (which
     // is equivalent to the LRCK frequency).
-    // For the following settings we'll get the LRCK frequency equal to
-    // 15873 Hz (the closest one to 16 kHz that is possible to achieve).
-    config.sdin_pin  = I2S_SDIN_PIN;
+    config.sdin_pin  = NRF_DRV_I2S_PIN_NOT_USED;
     config.sdout_pin = I2S_SDOUT_PIN;
-    config.mck_setup = NRF_I2S_MCK_32MDIV21;
-    config.ratio     = NRF_I2S_RATIO_96X;
+	config.mck_pin   = NRF_DRV_I2S_PIN_NOT_USED;
+    config.mck_setup = NRF_I2S_MCK_32MDIV10;
+    config.ratio     = NRF_I2S_RATIO_32X;
     config.channels  = NRF_I2S_CHANNELS_STEREO;
     err_code = nrf_drv_i2s_init(&config, data_handler);
     APP_ERROR_CHECK(err_code);
+#if 0
+	for (i=0; i<NUM_LEDS; i++) {
+		uint32_t rgb = 0x00000001 << ((i%3)*8);
+		buffer+=3;
+		rgb_to_i2s(rgb, buffer);
+	}
+#else
+	for (i=1; i<=NUM_LEDS; i++) {
+		set_led(i, COLOR_NONE);
+	}
+#endif
 
-    for (;;)
-    {
-        m_blocks_transferred = 0;
-        mp_block_to_fill  = NULL;
-        mp_block_to_check = NULL;
+	buffer=&(m_buffer_tx[(NUM_LEDS+1)*3]);
+	for (i=0; i<RESET_BITS; i++)
+		*buffer++ = 0x88888888;
 
-        prepare_tx_data(m_buffer_tx[0]);
+	set_led(1, COLOR_RED);
+	set_led(3, COLOR_BLUE);
+	set_led(5, COLOR_GREEN);
 
+    for (;;) {
         nrf_drv_i2s_buffers_t const initial_buffers = {
-            .p_tx_buffer = m_buffer_tx[0],
-            .p_rx_buffer = m_buffer_rx[0],
+            .p_tx_buffer = m_buffer_tx,
+            .p_rx_buffer = NULL,
         };
+
         err_code = nrf_drv_i2s_start(&initial_buffers, I2S_DATA_BLOCK_WORDS, 0);
         APP_ERROR_CHECK(err_code);
 
@@ -279,23 +191,10 @@ int main(void)
             __SEV();
             __WFE();
 
-            if (mp_block_to_fill)
-            {
-                prepare_tx_data(mp_block_to_fill);
-                mp_block_to_fill = NULL;
-            }
-            if (mp_block_to_check)
-            {
-                check_rx_data(mp_block_to_check);
-                mp_block_to_check = NULL;
-            }
         } while (m_blocks_transferred < BLOCKS_TO_TRANSFER);
 
         nrf_drv_i2s_stop();
 
-        NRF_LOG_FLUSH();
-
-        bsp_board_leds_off();
         nrf_delay_ms(PAUSE_TIME);
     }
 }
