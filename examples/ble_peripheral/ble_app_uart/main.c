@@ -80,6 +80,33 @@
 #include "nrf_log_ctrl.h"
 #include "nrf_log_default_backends.h"
 
+/* I2S */
+#include "nrf_drv_i2s.h"
+
+#define COLOR_BRIGHTNESS 	0x01
+#define COLOR_NONE			0x00000000
+#define COLOR_GREEN			COLOR_BRIGHTNESS << 0
+#define COLOR_RED			COLOR_BRIGHTNESS << 8
+#define COLOR_BLUE			COLOR_BRIGHTNESS << 16
+
+#define RESET_BITS 6
+#define NUM_LEDS (18*11)
+#define I2S_DATA_BLOCK_WORDS    ((NUM_LEDS*3) + RESET_BITS)
+
+static uint32_t m_buffer_tx[I2S_DATA_BLOCK_WORDS];
+#define M_COMMAND_SIZE NUM_LEDS*4+4
+static uint8_t m_command[M_COMMAND_SIZE];
+
+#define CLEAR_LEDS() do { \
+		uint8_t i; \
+		for (i=1; i<=NUM_LEDS; i++) { \
+			set_led(i, COLOR_NONE); \
+		} \
+	} \
+	while (0)
+
+/* --- */
+
 #define APP_BLE_CONN_CFG_TAG            1                                           /**< A tag identifying the SoftDevice BLE configuration. */
 
 #define DEVICE_NAME                     "Moonboard"                               /**< Name of device. Will be included in the advertising data. */
@@ -104,9 +131,6 @@
 #define UART_TX_BUF_SIZE                256                                         /**< UART TX buffer size. */
 #define UART_RX_BUF_SIZE                256                                         /**< UART RX buffer size. */
 
-#define I2S_BUF_LEN 200*3*4
-
-static uint32_t i2s_buf[I2S_BUF_LEN];
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
 NRF_BLE_GATT_DEF(m_gatt);                                                           /**< GATT module instance. */
 NRF_BLE_QWR_DEF(m_qwr);                                                             /**< Context for the Queued Write module.*/
@@ -119,6 +143,137 @@ static ble_uuid_t m_adv_uuids[]          =                                      
     {BLE_UUID_NUS_SERVICE, NUS_SERVICE_UUID_TYPE}
 };
 
+/* I2S */
+static inline
+void set_led(uint8_t _led, uint32_t _color);
+void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s);
+
+void parse_input(const uint8_t* _input);
+void parse_led_command(const uint8_t* _input);
+
+static void data_handler(nrf_drv_i2s_buffers_t const * p_released,
+                         uint32_t                      status)
+{
+	//static uint32_t tmp = 1;
+    // 'nrf_drv_i2s_next_buffers_set' is called directly from the handler
+    // each time next buffers are requested, so data corruption is not
+    // expected.
+    ASSERT(p_released);
+
+    // When the handler is called after the transfer has been stopped
+    // (no next buffers are needed, only the used buffers are to be
+    // released), there is nothing to do.
+    if (!(status & NRFX_I2S_STATUS_NEXT_BUFFERS_NEEDED)) {
+        return;
+    }
+
+	//rgb_to_i2s(tmp++, (uint32_t*)p_released->p_tx_buffer);
+    APP_ERROR_CHECK(nrf_drv_i2s_next_buffers_set(p_released));
+}
+
+
+void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)
+{
+    app_error_save_and_stop(id, pc, info);
+}
+
+static inline
+void set_led(uint8_t _led, uint32_t _color)
+{
+	rgb_to_i2s(_color, &(m_buffer_tx[(_led+1)*3]));
+}
+
+
+void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s)
+{
+	int i;
+	uint32_t mask = 0x000F0F0F;
+	uint32_t tmp;
+
+	_i2s[0] = 0;
+	_i2s[1] = 0;
+	_i2s[2] = 0;
+
+	tmp = _rgb & (~mask);
+	mask = _rgb & mask;
+	_rgb = (tmp >> 4) | (mask << 4);
+
+	mask = 1;
+	for (i=0; i<24; i++) {
+		_i2s[i/8u] += ((_rgb & mask) ? 0xe : 0x8) << ((i%8u)*4);
+		mask = mask << 1;
+	}
+}
+
+void parse_input(const uint8_t* _input)
+{
+	int i = 0;
+
+	while (app_uart_put('>') == NRF_ERROR_BUSY);
+	while(_input[i]) {
+		while (app_uart_put(_input[i]) == NRF_ERROR_BUSY);
+		i++;
+	}
+	while (app_uart_put('<') == NRF_ERROR_BUSY);
+
+	switch (_input[0]) {
+		case 'l':
+			if(_input[1] != '#')
+				return;
+			while (app_uart_put('1') == NRF_ERROR_BUSY);
+
+			parse_led_command(&(_input[2]));
+			break;
+		default:
+			while (app_uart_put('E') == NRF_ERROR_BUSY);
+			while (app_uart_put(_input[0]) == NRF_ERROR_BUSY);
+			return;
+	}
+}
+
+void parse_led_command(const uint8_t* _input)
+{
+	uint8_t led = 0;
+	uint32_t color;
+
+	while (*_input != '\0') {
+		switch (*_input) {
+			case 'S':
+				while (app_uart_put('G') == NRF_ERROR_BUSY);
+				color = COLOR_GREEN;
+				break;
+			case 'P':
+				while (app_uart_put('B') == NRF_ERROR_BUSY);
+				color = COLOR_BLUE;
+				break;
+			case 'E':
+				while (app_uart_put('R') == NRF_ERROR_BUSY);
+				color = COLOR_RED;
+				break;
+			default:
+				return;
+		}
+
+		_input++;
+		while (*_input != ',' && *_input != '#') {
+			if (*_input < '0' || *_input > '9' || *_input == '\0')
+				return;
+
+			led *= 10;
+			led += *_input - '0';
+			_input++;
+		}
+		while (app_uart_put('0'+led%10) == NRF_ERROR_BUSY);
+
+		if (led == 0 || led > NUM_LEDS)
+			return;
+
+		set_led(led, color);
+		led = 0;
+		_input++;
+	}
+}
+/* --- */
 
 /**@brief Function for assert macro callback.
  *
@@ -197,34 +352,54 @@ static void nrf_qwr_error_handler(uint32_t nrf_error)
 /**@snippet [Handling the data received over BLE] */
 static void nus_data_handler(ble_nus_evt_t * p_evt)
 {
-    static int counter_f = 0;
-
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
         uint32_t err_code;
+		static uint8_t* command = m_command;
 
         NRF_LOG_DEBUG("Received data from BLE NUS. Writing data on UART.");
         NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
 
-        for (uint32_t i = 0; i < p_evt->params.rx_data.length; i++)
-        {
-            do
-            {
-                err_code = app_uart_put(p_evt->params.rx_data.p_data[i]);
-		i2s_buf[counter_f%I2S_BUF_LEN] = p_evt->params.rx_data.p_data[i];
-                err_code = app_uart_put(i2s_buf[counter_f%I2S_BUF_LEN]);
-		counter_f++;
-                if ((err_code != NRF_SUCCESS) && (err_code != NRF_ERROR_BUSY))
-                {
-                    NRF_LOG_ERROR("Failed receiving NUS message. Error 0x%x. ", err_code);
-                    APP_ERROR_CHECK(err_code);
-                }
-            } while (err_code == NRF_ERROR_BUSY);
-        }
-        if (p_evt->params.rx_data.p_data[p_evt->params.rx_data.length - 1] == '\r')
-        {
+		int i;
+		while (app_uart_put('\n') == NRF_ERROR_BUSY);
+		while (app_uart_put('\\') == NRF_ERROR_BUSY);
+		for (i=0;i<p_evt->params.rx_data.length; i++) {
+			while (app_uart_put(p_evt->params.rx_data.p_data[i]) == NRF_ERROR_BUSY);
+		}
+		while (app_uart_put('/') == NRF_ERROR_BUSY);
+		while (app_uart_put('\n') == NRF_ERROR_BUSY);
+
+		if (command + p_evt->params.rx_data.length >= m_command + sizeof(m_command)) {
+			return;
+		}
+
+		memcpy(command, p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+		command += p_evt->params.rx_data.length;
+
+		if (p_evt->params.rx_data.p_data[p_evt->params.rx_data.length-1] == '#') {
+			*command = '\0';
+			while (app_uart_put('\n') == NRF_ERROR_BUSY);
+			while (app_uart_put('(') == NRF_ERROR_BUSY);
+			for (command = m_command; *command != '\0'; command++)
+	        {
+	            do
+	            {
+	                err_code = app_uart_put(*command);
+
+	                if ((err_code != NRF_SUCCESS) && (err_code != NRF_ERROR_BUSY))
+	                {
+	                    NRF_LOG_ERROR("Failed receiving NUS message. Error 0x%x. ", err_code);
+	                    APP_ERROR_CHECK(err_code);
+	                }
+	            } while (err_code == NRF_ERROR_BUSY);
+	        }
+			while (app_uart_put(')') == NRF_ERROR_BUSY);
             while (app_uart_put('\n') == NRF_ERROR_BUSY);
-        }
+
+			CLEAR_LEDS();
+			parse_input(m_command);
+			command = m_command;
+    	}
     }
 
 }
@@ -703,6 +878,13 @@ static void advertising_start(void)
 int main(void)
 {
     bool erase_bonds;
+	//int i;
+
+    uint32_t err_code = NRF_SUCCESS;
+	nrf_drv_i2s_buffers_t const initial_buffers = {
+            .p_tx_buffer = m_buffer_tx,
+            .p_rx_buffer = NULL,
+        };
 
     // Initialize.
     uart_init();
@@ -716,6 +898,31 @@ int main(void)
     services_init();
     advertising_init();
     conn_params_init();
+
+	/* I2S */
+    bsp_board_init(BSP_INIT_NONE);
+
+    nrf_drv_i2s_config_t config = NRF_DRV_I2S_DEFAULT_CONFIG;
+    // In Master mode the MCK frequency and the MCK/LRCK ratio should be
+    // set properly in order to achieve desired audio sample rate (which
+    // is equivalent to the LRCK frequency).
+    config.sdin_pin  = NRF_DRV_I2S_PIN_NOT_USED;
+    config.sdout_pin = I2S_SDOUT_PIN;
+	config.mck_pin   = NRF_DRV_I2S_PIN_NOT_USED;
+    config.mck_setup = NRF_I2S_MCK_32MDIV10;
+    config.ratio     = NRF_I2S_RATIO_32X;
+    config.channels  = NRF_I2S_CHANNELS_STEREO;
+    err_code = nrf_drv_i2s_init(&config, data_handler);
+    APP_ERROR_CHECK(err_code);
+
+	CLEAR_LEDS();
+
+	//for (i=1; i<=18*11; i++) {
+	//	set_led(i, COLOR_RED);
+	//}
+	set_led(1, COLOR_RED);
+    err_code = nrf_drv_i2s_start(&initial_buffers, I2S_DATA_BLOCK_WORDS, 0);
+    APP_ERROR_CHECK(err_code);
 
     // Start execution.
     printf("\r\nUART started.\r\n");
