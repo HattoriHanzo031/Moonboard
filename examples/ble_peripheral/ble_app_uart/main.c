@@ -68,6 +68,7 @@
 #include "app_util_platform.h"
 #include "bsp_btn_ble.h"
 #include "nrf_pwr_mgmt.h"
+#include "nrf_delay.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -99,7 +100,7 @@ static uint8_t m_command[M_COMMAND_SIZE];
 
 #define CLEAR_LEDS() do { \
 		uint8_t i; \
-		for (i=1; i<=NUM_LEDS; i++) { \
+		for (i=0; i<NUM_LEDS; i++) { \
 			set_led(i, COLOR_NONE); \
 		} \
 	} \
@@ -207,26 +208,16 @@ void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s)
 
 void parse_input(const uint8_t* _input)
 {
-	int i = 0;
-
-	while (app_uart_put('>') == NRF_ERROR_BUSY);
-	while(_input[i]) {
-		while (app_uart_put(_input[i]) == NRF_ERROR_BUSY);
-		i++;
-	}
-	while (app_uart_put('<') == NRF_ERROR_BUSY);
-
 	switch (_input[0]) {
 		case 'l':
-			if(_input[1] != '#')
+			if(_input[1] != '#') {
+				printf("ERROR: Wrong char after command index: %c\r\n", _input[1]);
 				return;
-			while (app_uart_put('1') == NRF_ERROR_BUSY);
-
+			}
 			parse_led_command(&(_input[2]));
 			break;
 		default:
-			while (app_uart_put('E') == NRF_ERROR_BUSY);
-			while (app_uart_put(_input[0]) == NRF_ERROR_BUSY);
+			printf("ERROR: Wrong command index: %c\r\n", _input[0]);
 			return;
 	}
 }
@@ -239,18 +230,19 @@ void parse_led_command(const uint8_t* _input)
 	while (*_input != '\0') {
 		switch (*_input) {
 			case 'S':
-				while (app_uart_put('G') == NRF_ERROR_BUSY);
+				printf("GREEN\t");
 				color = COLOR_GREEN;
 				break;
 			case 'P':
-				while (app_uart_put('B') == NRF_ERROR_BUSY);
+				printf("BLUE \t");
 				color = COLOR_BLUE;
 				break;
 			case 'E':
-				while (app_uart_put('R') == NRF_ERROR_BUSY);
+				printf("RED  \t");
 				color = COLOR_RED;
 				break;
 			default:
+				printf("ERROR: Unknown LED color: %c\r\n", *_input);
 				return;
 		}
 
@@ -263,11 +255,12 @@ void parse_led_command(const uint8_t* _input)
 			led += *_input - '0';
 			_input++;
 		}
-		while (app_uart_put('0'+led%10) == NRF_ERROR_BUSY);
+		printf("%d\r\n", led);
 
-		if (led == 0 || led > NUM_LEDS)
+		if (led >= NUM_LEDS) {
+			printf("ERROR: LED: %d bigger than number of leds: %d\r\n", led, NUM_LEDS);
 			return;
-
+		}
 		set_led(led, color);
 		led = 0;
 		_input++;
@@ -354,48 +347,23 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 {
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
-        uint32_t err_code;
 		static uint8_t* command = m_command;
 
         NRF_LOG_DEBUG("Received data from BLE NUS. Writing data on UART.");
         NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
 
-		int i;
-		while (app_uart_put('\n') == NRF_ERROR_BUSY);
-		while (app_uart_put('\\') == NRF_ERROR_BUSY);
-		for (i=0;i<p_evt->params.rx_data.length; i++) {
-			while (app_uart_put(p_evt->params.rx_data.p_data[i]) == NRF_ERROR_BUSY);
-		}
-		while (app_uart_put('/') == NRF_ERROR_BUSY);
-		while (app_uart_put('\n') == NRF_ERROR_BUSY);
-
 		if (command + p_evt->params.rx_data.length >= m_command + sizeof(m_command)) {
+			printf("ERROR: command too long: %d\r\n", p_evt->params.rx_data.length);
 			return;
 		}
 
 		memcpy(command, p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
 		command += p_evt->params.rx_data.length;
+		*command = '\0';
+
+		printf("BT -> %s\r\n", m_command);
 
 		if (p_evt->params.rx_data.p_data[p_evt->params.rx_data.length-1] == '#') {
-			*command = '\0';
-			while (app_uart_put('\n') == NRF_ERROR_BUSY);
-			while (app_uart_put('(') == NRF_ERROR_BUSY);
-			for (command = m_command; *command != '\0'; command++)
-	        {
-	            do
-	            {
-	                err_code = app_uart_put(*command);
-
-	                if ((err_code != NRF_SUCCESS) && (err_code != NRF_ERROR_BUSY))
-	                {
-	                    NRF_LOG_ERROR("Failed receiving NUS message. Error 0x%x. ", err_code);
-	                    APP_ERROR_CHECK(err_code);
-	                }
-	            } while (err_code == NRF_ERROR_BUSY);
-	        }
-			while (app_uart_put(')') == NRF_ERROR_BUSY);
-            while (app_uart_put('\n') == NRF_ERROR_BUSY);
-
 			CLEAR_LEDS();
 			parse_input(m_command);
 			command = m_command;
@@ -916,16 +884,39 @@ int main(void)
     APP_ERROR_CHECK(err_code);
 
 	CLEAR_LEDS();
-
-	//for (i=1; i<=18*11; i++) {
-	//	set_led(i, COLOR_RED);
-	//}
-	set_led(1, COLOR_RED);
     err_code = nrf_drv_i2s_start(&initial_buffers, I2S_DATA_BLOCK_WORDS, 0);
     APP_ERROR_CHECK(err_code);
 
+	int i, j;
+	uint32_t color = COLOR_RED;
+	for (j=0;j<3;j++) {
+		switch (color) {
+			case COLOR_RED:
+				color = COLOR_GREEN;
+				break;
+			case COLOR_GREEN:
+				color = COLOR_BLUE;
+				break;
+			case COLOR_BLUE:
+				color = COLOR_RED;
+				break;
+		}
+		for (i=0; i<NUM_LEDS; i++) {
+			nrf_delay_ms(20);
+			set_led(i, color);
+			//if(i){
+			//	set_led(i-1, COLOR_NONE);
+			//} else {
+			//	set_led(NUM_LEDS-1, COLOR_NONE);
+			//}
+		}
+	}
+
+	nrf_delay_ms(2000);
+	CLEAR_LEDS();
+
     // Start execution.
-    printf("\r\nUART started.\r\n");
+    printf("\r\nUART started.!!!\r\n");
     NRF_LOG_INFO("Debug logging for UART over RTT started.");
     advertising_start();
 
