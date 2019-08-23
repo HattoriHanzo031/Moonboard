@@ -347,26 +347,30 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 {
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
-		static uint8_t* command = m_command;
+		static int location;
 
-        NRF_LOG_DEBUG("Received data from BLE NUS. Writing data on UART.");
-        NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+		int i;
 
-		if (command + p_evt->params.rx_data.length >= m_command + sizeof(m_command)) {
+		printf("BT -> ");
+		for (i=0;i<p_evt->params.rx_data.length; i++)
+			printf("%c", p_evt->params.rx_data.p_data[i]);
+		printf("\r\n");
+
+		if (location + p_evt->params.rx_data.length >= sizeof(m_command)) {
 			printf("ERROR: command too long: %d\r\n", p_evt->params.rx_data.length);
 			return;
 		}
 
-		memcpy(command, p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
-		command += p_evt->params.rx_data.length;
-		*command = '\0';
+		memcpy(&(m_command[location]), p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+		location += p_evt->params.rx_data.length;
+		m_command[location] = '\0';
 
-		printf("BT -> %s\r\n", m_command);
+		printf("CM -> %s\r\n", m_command);
 
 		if (p_evt->params.rx_data.p_data[p_evt->params.rx_data.length-1] == '#') {
 			CLEAR_LEDS();
 			parse_input(m_command);
-			command = m_command;
+			location = 0;
     	}
     }
 
@@ -510,7 +514,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
     switch (p_ble_evt->header.evt_id)
     {
         case BLE_GAP_EVT_CONNECTED:
-            NRF_LOG_INFO("Connected");
+            printf("Connected");
             err_code = bsp_indication_set(BSP_INDICATE_CONNECTED);
             APP_ERROR_CHECK(err_code);
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
@@ -519,14 +523,14 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             break;
 
         case BLE_GAP_EVT_DISCONNECTED:
-            NRF_LOG_INFO("Disconnected");
+            printf("Disconnected");
             // LED indication will be changed when advertising starts.
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
             break;
 
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST:
         {
-            NRF_LOG_DEBUG("PHY update request.");
+            printf("PHY update request.");
             ble_gap_phys_t const phys =
             {
                 .rx_phys = BLE_GAP_PHY_AUTO,
@@ -601,9 +605,9 @@ void gatt_evt_handler(nrf_ble_gatt_t * p_gatt, nrf_ble_gatt_evt_t const * p_evt)
     if ((m_conn_handle == p_evt->conn_handle) && (p_evt->evt_id == NRF_BLE_GATT_EVT_ATT_MTU_UPDATED))
     {
         m_ble_nus_max_data_len = p_evt->params.att_mtu_effective - OPCODE_LENGTH - HANDLE_LENGTH;
-        NRF_LOG_INFO("Data len is set to 0x%X(%d)", m_ble_nus_max_data_len, m_ble_nus_max_data_len);
+        printf("Data len is set to 0x%X(%d)", m_ble_nus_max_data_len, m_ble_nus_max_data_len);
     }
-    NRF_LOG_DEBUG("ATT MTU exchange completed. central 0x%x peripheral 0x%x",
+    printf("ATT MTU exchange completed. central 0x%x peripheral 0x%x",
                   p_gatt->att_mtu_desired_central,
                   p_gatt->att_mtu_desired_periph);
 }
@@ -659,46 +663,27 @@ void bsp_event_handler(bsp_event_t event)
     }
 }
 
-
-/**@brief   Function for handling app_uart events.
- *
- * @details This function will receive a single character from the app_uart module and append it to
- *          a string. The string will be be sent over BLE when the last character received was a
- *          'new line' '\n' (hex 0x0A) or if the string has reached the maximum data length.
- */
 /**@snippet [Handling the data received over UART] */
 void uart_event_handle(app_uart_evt_t * p_event)
 {
     static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
     static uint8_t index = 0;
-    uint32_t       err_code;
 
     switch (p_event->evt_type)
     {
         case APP_UART_DATA_READY:
             UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+			UNUSED_VARIABLE(app_uart_put(data_array[index]));
             index++;
 
             if ((data_array[index - 1] == '\n') ||
                 (data_array[index - 1] == '\r') ||
-                (index >= m_ble_nus_max_data_len))
+                (index >= BLE_NUS_MAX_DATA_LEN))
             {
                 if (index > 1)
                 {
-                    NRF_LOG_DEBUG("Ready to send data over BLE NUS");
-                    NRF_LOG_HEXDUMP_DEBUG(data_array, index);
-
-                    do
-                    {
-                        uint16_t length = (uint16_t)index;
-                        err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
-                        if ((err_code != NRF_ERROR_INVALID_STATE) &&
-                            (err_code != NRF_ERROR_RESOURCES) &&
-                            (err_code != NRF_ERROR_NOT_FOUND))
-                        {
-                            APP_ERROR_CHECK(err_code);
-                        }
-                    } while (err_code == NRF_ERROR_RESOURCES);
+					data_array[index - 1] = '\0';
+					parse_led_command(data_array);
                 }
 
                 index = 0;
@@ -706,10 +691,14 @@ void uart_event_handle(app_uart_evt_t * p_event)
             break;
 
         case APP_UART_COMMUNICATION_ERROR:
+			UNUSED_VARIABLE(app_uart_put('E'));
+			UNUSED_VARIABLE(app_uart_put('!'));
             APP_ERROR_HANDLER(p_event->data.error_communication);
             break;
 
         case APP_UART_FIFO_ERROR:
+			UNUSED_VARIABLE(app_uart_put('E'));
+			UNUSED_VARIABLE(app_uart_put('!'));
             APP_ERROR_HANDLER(p_event->data.error_code);
             break;
 
@@ -718,7 +707,6 @@ void uart_event_handle(app_uart_evt_t * p_event)
     }
 }
 /**@snippet [Handling the data received over UART] */
-
 
 /**@brief  Function for initializing the UART module.
  */
