@@ -84,19 +84,33 @@
 /* I2S */
 #include "nrf_drv_i2s.h"
 
-#define COLOR_BRIGHTNESS 	0x01
+#define COLOR_BRIGHTNESS 	0x10
 #define COLOR_NONE			0x00000000
-#define COLOR_GREEN			COLOR_BRIGHTNESS << 0
-#define COLOR_RED			COLOR_BRIGHTNESS << 8
-#define COLOR_BLUE			COLOR_BRIGHTNESS << 16
+#define COLOR_GREEN			(s_color_brightness << 0)
+#define COLOR_RED			(s_color_brightness << 8)
+#define COLOR_BLUE			(s_color_brightness << 16)
 
 #define RESET_BITS 6
 #define NUM_LEDS (18*11)
 #define I2S_DATA_BLOCK_WORDS    ((NUM_LEDS*3) + RESET_BITS)
 
-static uint32_t m_buffer_tx[I2S_DATA_BLOCK_WORDS];
-#define M_COMMAND_SIZE NUM_LEDS*4+4
-static uint8_t m_command[M_COMMAND_SIZE];
+#define COMMAND_SIZE NUM_LEDS*4+4
+
+static uint32_t s_color_brightness = COLOR_BRIGHTNESS;
+static uint32_t s_buffer_tx[I2S_DATA_BLOCK_WORDS];
+static uint8_t s_command[COMMAND_SIZE];
+static uint8_t s_light_leds;
+static uint8_t m_next_buffers_set = 0;
+
+#define LIGHT_LEDS(_buffer, _size) do { \
+		uint32_t err_code; \
+		m_next_buffers_set = 0; \
+		err_code = nrf_drv_i2s_start(&_buffer, _size, 0); \
+		APP_ERROR_CHECK(err_code); \
+		while(m_next_buffers_set < 2) nrf_delay_us(1); \
+		nrf_drv_i2s_stop(); \
+	} \
+	while (0)
 
 #define CLEAR_LEDS() do { \
 		uint8_t i; \
@@ -155,7 +169,6 @@ void parse_led_command(const uint8_t* _input);
 static void data_handler(nrf_drv_i2s_buffers_t const * p_released,
                          uint32_t                      status)
 {
-	//static uint32_t tmp = 1;
     // 'nrf_drv_i2s_next_buffers_set' is called directly from the handler
     // each time next buffers are requested, so data corruption is not
     // expected.
@@ -165,11 +178,12 @@ static void data_handler(nrf_drv_i2s_buffers_t const * p_released,
     // (no next buffers are needed, only the used buffers are to be
     // released), there is nothing to do.
     if (!(status & NRFX_I2S_STATUS_NEXT_BUFFERS_NEEDED)) {
+		m_next_buffers_set = 0;
         return;
     }
 
-	//rgb_to_i2s(tmp++, (uint32_t*)p_released->p_tx_buffer);
     APP_ERROR_CHECK(nrf_drv_i2s_next_buffers_set(p_released));
+	m_next_buffers_set++;
 }
 
 
@@ -181,7 +195,7 @@ void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)
 static inline
 void set_led(uint8_t _led, uint32_t _color)
 {
-	rgb_to_i2s(_color, &(m_buffer_tx[(_led+1)*3]));
+	rgb_to_i2s(_color, &(s_buffer_tx[(_led+1)*3]));
 }
 
 
@@ -201,7 +215,7 @@ void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s)
 
 	mask = 1;
 	for (i=0; i<24; i++) {
-		_i2s[i/8u] += ((_rgb & mask) ? 0xe : 0x8) << ((i%8u)*4);
+		_i2s[i/8u] += ((_rgb & mask) ? 0xE : 0x8) << ((i%8u)*4);
 		mask = mask << 1;
 	}
 }
@@ -356,21 +370,21 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 			printf("%c", p_evt->params.rx_data.p_data[i]);
 		printf("\r\n");
 
-		if (location + p_evt->params.rx_data.length >= sizeof(m_command)) {
+		if (location + p_evt->params.rx_data.length >= sizeof(s_command)) {
 			printf("ERROR: command too long: %d\r\n", p_evt->params.rx_data.length);
 			return;
 		}
 
-		memcpy(&(m_command[location]), p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+		memcpy(&(s_command[location]), p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
 		location += p_evt->params.rx_data.length;
-		m_command[location] = '\0';
+		s_command[location] = '\0';
 
-		printf("CM -> %s\r\n", m_command);
+		printf("CM -> %s\r\n", s_command);
 
 		if (p_evt->params.rx_data.p_data[p_evt->params.rx_data.length-1] == '#') {
-			CLEAR_LEDS();
-			parse_input(m_command);
+			s_light_leds = 1;
 			location = 0;
+
     	}
     }
 
@@ -838,7 +852,7 @@ int main(void)
 
     uint32_t err_code = NRF_SUCCESS;
 	nrf_drv_i2s_buffers_t const initial_buffers = {
-            .p_tx_buffer = m_buffer_tx,
+            .p_tx_buffer = s_buffer_tx,
             .p_rx_buffer = NULL,
         };
 
@@ -872,46 +886,46 @@ int main(void)
     APP_ERROR_CHECK(err_code);
 
 	CLEAR_LEDS();
-    err_code = nrf_drv_i2s_start(&initial_buffers, I2S_DATA_BLOCK_WORDS, 0);
-    APP_ERROR_CHECK(err_code);
+	LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
 
 	int i, j;
-	uint32_t color = COLOR_RED;
+	uint32_t color = 0;
+
 	for (j=0;j<3;j++) {
-		switch (color) {
-			case COLOR_RED:
-				color = COLOR_GREEN;
-				break;
-			case COLOR_GREEN:
-				color = COLOR_BLUE;
-				break;
-			case COLOR_BLUE:
-				color = COLOR_RED;
-				break;
-		}
+		if (color == COLOR_RED)
+			color = COLOR_GREEN;
+		else if (color == COLOR_GREEN)
+			color = COLOR_BLUE;
+		else
+			color = COLOR_RED;
+
 		for (i=0; i<NUM_LEDS; i++) {
-			nrf_delay_ms(20);
 			set_led(i, color);
-			//if(i){
-			//	set_led(i-1, COLOR_NONE);
-			//} else {
-			//	set_led(NUM_LEDS-1, COLOR_NONE);
-			//}
+			LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
 		}
 	}
 
+	printf("DELAY\r\n");
 	nrf_delay_ms(2000);
+
 	CLEAR_LEDS();
+	LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
 
     // Start execution.
     printf("\r\nUART started.!!!\r\n");
-    NRF_LOG_INFO("Debug logging for UART over RTT started.");
     advertising_start();
 
     // Enter main loop.
     for (;;)
     {
         idle_state_handle();
+
+		if(s_light_leds != 0) {
+			s_light_leds = 0;
+			CLEAR_LEDS();
+			parse_input(s_command);
+			LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
+		}
     }
 }
 
