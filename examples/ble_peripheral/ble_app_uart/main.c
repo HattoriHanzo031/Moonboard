@@ -698,6 +698,7 @@ void uart_event_handle(app_uart_evt_t * p_event)
                 {
 					data_array[index - 1] = '\0';
 					parse_led_command(data_array);
+					s_light_leds = 1;
                 }
 
                 index = 0;
