@@ -84,7 +84,7 @@
 /* I2S */
 #include "nrf_drv_i2s.h"
 
-#define COLOR_BRIGHTNESS 	0x10
+#define COLOR_BRIGHTNESS 	0x40
 #define COLOR_NONE			0x00000000
 #define COLOR_GREEN			(s_color_brightness << 0)
 #define COLOR_RED			(s_color_brightness << 8)
@@ -195,6 +195,7 @@ void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)
 static inline
 void set_led(uint8_t _led, uint32_t _color)
 {
+	_led = (NUM_LEDS - 1) - _led;
 	rgb_to_i2s(_color, &(s_buffer_tx[(_led+1)*3]));
 }
 
