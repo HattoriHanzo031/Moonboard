@@ -872,6 +872,7 @@ int main(void)
 
 	/* I2S */
     bsp_board_init(BSP_INIT_NONE);
+    printf("\r\nBOARD Init!!!\r\n");
 
     nrf_drv_i2s_config_t config = NRF_DRV_I2S_DEFAULT_CONFIG;
     // In Master mode the MCK frequency and the MCK/LRCK ratio should be
