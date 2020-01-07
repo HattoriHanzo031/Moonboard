@@ -140,10 +140,13 @@ void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s)
 
 void parse_input(const char* _input)
 {
+	while (app_uart_put('0') == NRF_ERROR_BUSY);
 	switch (_input[0]) {
 		case '1':
 			if(_input[1] != '#')
 				return;
+			while (app_uart_put('1') == NRF_ERROR_BUSY);
+
 			parse_led_command(&(_input[2]));
 			break;
 		default:
@@ -159,15 +162,19 @@ void parse_led_command(const char* _input)
 	while (*_input != '\0') {
 		switch (*_input) {
 			case 'S':
+				while (app_uart_put('1') == NRF_ERROR_BUSY);
 				color = COLOR_GREEN;
 				break;
 			case 'P':
+				while (app_uart_put('2') == NRF_ERROR_BUSY);
 				color = COLOR_BLUE;
 				break;
 			case 'E':
+				while (app_uart_put('3') == NRF_ERROR_BUSY);
 				color = COLOR_RED;
 				break;
 			default:
+				while (app_uart_put('e') == NRF_ERROR_BUSY);
 				return;
 		}
 
@@ -180,7 +187,8 @@ void parse_led_command(const char* _input)
 			led += *_input - '0';
 			_input++;
 		}
-
+		while (app_uart_put('L') == NRF_ERROR_BUSY);
+		while (app_uart_put('0'+led%10) == NRF_ERROR_BUSY);
 		if (led == 0 || led > NUM_LEDS)
 			return;
 
