@@ -84,11 +84,11 @@
 /* I2S */
 #include "nrf_drv_i2s.h"
 
-#define COLOR_BRIGHTNESS 	0x10
-#define COLOR_NONE			0x00000000
-#define COLOR_GREEN			(s_color_brightness << 0)
-#define COLOR_RED			(s_color_brightness << 8)
-#define COLOR_BLUE			(s_color_brightness << 16)
+#define COLOR_BRIGHTNESS     0x10
+#define COLOR_NONE           0x00000000
+#define COLOR_GREEN          (s_color_brightness << 0)
+#define COLOR_RED            (s_color_brightness << 8)
+#define COLOR_BLUE           (s_color_brightness << 16)
 
 #define RESET_BITS 6
 #define NUM_LEDS (18*11)
@@ -103,28 +103,28 @@ static uint8_t s_light_leds;
 static uint8_t m_next_buffers_set = 0;
 
 #define LIGHT_LEDS(_buffer, _size) do { \
-		uint32_t err_code; \
-		m_next_buffers_set = 0; \
-		err_code = nrf_drv_i2s_start(&_buffer, _size, 0); \
-		APP_ERROR_CHECK(err_code); \
-		while(m_next_buffers_set < 2) nrf_delay_us(1); \
-		nrf_drv_i2s_stop(); \
-	} \
-	while (0)
+        uint32_t err_code; \
+        m_next_buffers_set = 0; \
+        err_code = nrf_drv_i2s_start(&_buffer, _size, 0); \
+        APP_ERROR_CHECK(err_code); \
+        while(m_next_buffers_set < 2) nrf_delay_us(1); \
+        nrf_drv_i2s_stop(); \
+    } \
+    while (0)
 
 #define CLEAR_LEDS() do { \
-		uint8_t i; \
-		for (i=0; i<NUM_LEDS; i++) { \
-			set_led(i, COLOR_NONE); \
-		} \
-	} \
-	while (0)
+        uint8_t i; \
+        for (i=0; i<NUM_LEDS; i++) { \
+            set_led(i, COLOR_NONE); \
+        } \
+    } \
+    while (0)
 
 /* --- */
 
 #define APP_BLE_CONN_CFG_TAG            1                                           /**< A tag identifying the SoftDevice BLE configuration. */
 
-#define DEVICE_NAME                     "Moonboard"                               /**< Name of device. Will be included in the advertising data. */
+#define DEVICE_NAME                     "Moonboard"                                 /**< Name of device. Will be included in the advertising data. */
 #define NUS_SERVICE_UUID_TYPE           BLE_UUID_TYPE_VENDOR_BEGIN                  /**< UUID type for the Nordic UART Service (vendor specific). */
 
 #define APP_BLE_OBSERVER_PRIO           3                                           /**< Application's BLE observer priority. You shouldn't need to modify this value. */
@@ -181,12 +181,12 @@ static void data_handler(nrf_drv_i2s_buffers_t const * p_released,
     // (no next buffers are needed, only the used buffers are to be
     // released), there is nothing to do.
     if (!(status & NRFX_I2S_STATUS_NEXT_BUFFERS_NEEDED)) {
-		m_next_buffers_set = 0;
+        m_next_buffers_set = 0;
         return;
     }
 
     APP_ERROR_CHECK(nrf_drv_i2s_next_buffers_set(p_released));
-	m_next_buffers_set++;
+    m_next_buffers_set++;
 }
 
 
@@ -198,90 +198,90 @@ void app_error_fault_handler(uint32_t id, uint32_t pc, uint32_t info)
 static inline
 void set_led(uint8_t _led, uint32_t _color)
 {
-	rgb_to_i2s(_color, &(s_buffer_tx[(_led+1)*3]));
+    rgb_to_i2s(_color, &(s_buffer_tx[(_led+1)*3]));
 }
 
 
 void rgb_to_i2s(uint32_t _rgb, uint32_t* _i2s)
 {
-	int i;
-	uint32_t mask = 0x000F0F0F;
-	uint32_t tmp;
+    int i;
+    uint32_t mask = 0x000F0F0F;
+    uint32_t tmp;
 
-	_i2s[0] = 0;
-	_i2s[1] = 0;
-	_i2s[2] = 0;
+    _i2s[0] = 0;
+    _i2s[1] = 0;
+    _i2s[2] = 0;
 
-	tmp = _rgb & (~mask);
-	mask = _rgb & mask;
-	_rgb = (tmp >> 4) | (mask << 4);
+    tmp = _rgb & (~mask);
+    mask = _rgb & mask;
+    _rgb = (tmp >> 4) | (mask << 4);
 
-	mask = 1;
-	for (i=0; i<24; i++) {
-		_i2s[i/8u] += ((_rgb & mask) ? 0xE : 0x8) << ((i%8u)*4);
-		mask = mask << 1;
-	}
+    mask = 1;
+    for (i=0; i<24; i++) {
+        _i2s[i/8u] += ((_rgb & mask) ? 0xE : 0x8) << ((i%8u)*4);
+        mask = mask << 1;
+    }
 }
 
 void parse_input(const uint8_t* _input)
 {
-	switch (_input[0]) {
-		case 'l':
-			if(_input[1] != '#') {
-				printf("ERROR: Wrong char after command index: %c\r\n", _input[1]);
-				return;
-			}
-			parse_led_command(&(_input[2]));
-			break;
-		default:
-			printf("ERROR: Wrong command index: %c\r\n", _input[0]);
-			return;
-	}
+    switch (_input[0]) {
+        case 'l':
+            if(_input[1] != '#') {
+                printf("ERROR: Wrong char after command index: %c\r\n", _input[1]);
+                return;
+            }
+            parse_led_command(&(_input[2]));
+            break;
+        default:
+            printf("ERROR: Wrong command index: %c\r\n", _input[0]);
+            return;
+    }
 }
 
 void parse_led_command(const uint8_t* _input)
 {
-	uint8_t led = 0;
-	uint32_t color;
+    uint8_t led = 0;
+    uint32_t color;
 
-	while (*_input != '\0') {
-		switch (*_input) {
-			case 'S':
-				printf("GREEN\t");
-				color = COLOR_GREEN;
-				break;
-			case 'P':
-				printf("BLUE \t");
-				color = COLOR_BLUE;
-				break;
-			case 'E':
-				printf("RED  \t");
-				color = COLOR_RED;
-				break;
-			default:
-				printf("ERROR: Unknown LED color: %c\r\n", *_input);
-				return;
-		}
+    while (*_input != '\0') {
+        switch (*_input) {
+            case 'S':
+                printf("GREEN\t");
+                color = COLOR_GREEN;
+                break;
+            case 'P':
+                printf("BLUE \t");
+                color = COLOR_BLUE;
+                break;
+            case 'E':
+                printf("RED  \t");
+                color = COLOR_RED;
+                break;
+            default:
+                printf("ERROR: Unknown LED color: %c\r\n", *_input);
+                return;
+        }
 
-		_input++;
-		while (*_input != ',' && *_input != '#') {
-			if (*_input < '0' || *_input > '9' || *_input == '\0')
-				return;
+        _input++;
+        while (*_input != ',' && *_input != '#') {
+            if (*_input < '0' || *_input > '9' || *_input == '\0')
+                return;
 
-			led *= 10;
-			led += *_input - '0';
-			_input++;
-		}
-		printf("%d\r\n", led);
+            led *= 10;
+            led += *_input - '0';
+            _input++;
+        }
+        printf("%d\r\n", led);
 
-		if (led >= NUM_LEDS) {
-			printf("ERROR: LED: %d bigger than number of leds: %d\r\n", led, NUM_LEDS);
-			return;
-		}
-		set_led(led, color);
-		led = 0;
-		_input++;
-	}
+        if (led >= NUM_LEDS) {
+            printf("ERROR: LED: %d bigger than number of leds: %d\r\n", led, NUM_LEDS);
+            return;
+        }
+        set_led(led, color);
+        led = 0;
+        _input++;
+    }
 }
 /* --- */
 
@@ -364,31 +364,31 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
 {
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
-		static int location;
+        static int location;
 
-		int i;
+        int i;
 
-		printf("BT -> ");
-		for (i=0;i<p_evt->params.rx_data.length; i++)
-			printf("%c", p_evt->params.rx_data.p_data[i]);
-		printf("\r\n");
+        printf("BT -> ");
+        for (i=0;i<p_evt->params.rx_data.length; i++)
+            printf("%c", p_evt->params.rx_data.p_data[i]);
+        printf("\r\n");
 
-		if (location + p_evt->params.rx_data.length >= sizeof(s_command)) {
-			printf("ERROR: command too long: %d\r\n", p_evt->params.rx_data.length);
-			return;
-		}
+        if (location + p_evt->params.rx_data.length >= sizeof(s_command)) {
+            printf("ERROR: command too long: %d\r\n", p_evt->params.rx_data.length);
+            return;
+        }
 
-		memcpy(&(s_command[location]), p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
-		location += p_evt->params.rx_data.length;
-		s_command[location] = '\0';
+        memcpy(&(s_command[location]), p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+        location += p_evt->params.rx_data.length;
+        s_command[location] = '\0';
 
-		printf("CM -> %s\r\n", s_command);
+        printf("CM -> %s\r\n", s_command);
 
-		if (p_evt->params.rx_data.p_data[p_evt->params.rx_data.length-1] == '#') {
-			s_light_leds = 1;
-			location = 0;
+        if (p_evt->params.rx_data.p_data[p_evt->params.rx_data.length-1] == '#') {
+            s_light_leds = 1;
+            location = 0;
 
-    	}
+        }
     }
 
 }
@@ -507,14 +507,17 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
     switch (ble_adv_evt)
     {
         case BLE_ADV_EVT_FAST:
+            printf("Adv Fast\r\n");
             err_code = bsp_indication_set(BSP_INDICATE_ADVERTISING);
             APP_ERROR_CHECK(err_code);
             break;
         case BLE_ADV_EVT_SLOW:
+            printf("Adv Slow\r\n");
             err_code = bsp_indication_set(BSP_INDICATE_ADVERTISING_SLOW);
             APP_ERROR_CHECK(err_code);
             break;
         case BLE_ADV_EVT_IDLE:
+            printf("Adv Idle\r\n");
             sleep_mode_enter();
             break;
         default:
@@ -694,7 +697,7 @@ void uart_event_handle(app_uart_evt_t * p_event)
     {
         case APP_UART_DATA_READY:
             UNUSED_VARIABLE(app_uart_get(&data_array[index]));
-			UNUSED_VARIABLE(app_uart_put(data_array[index]));
+            UNUSED_VARIABLE(app_uart_put(data_array[index]));
             index++;
 
             if ((data_array[index - 1] == '\n') ||
@@ -703,9 +706,9 @@ void uart_event_handle(app_uart_evt_t * p_event)
             {
                 if (index > 1)
                 {
-					data_array[index - 1] = '\0';
-					parse_led_command(data_array);
-					s_light_leds = 1;
+                    data_array[index - 1] = '\0';
+                    parse_led_command(data_array);
+                    s_light_leds = 1;
                 }
 
                 index = 0;
@@ -713,14 +716,14 @@ void uart_event_handle(app_uart_evt_t * p_event)
             break;
 
         case APP_UART_COMMUNICATION_ERROR:
-			UNUSED_VARIABLE(app_uart_put('E'));
-			UNUSED_VARIABLE(app_uart_put('!'));
+            UNUSED_VARIABLE(app_uart_put('E'));
+            UNUSED_VARIABLE(app_uart_put('!'));
             APP_ERROR_HANDLER(p_event->data.error_communication);
             break;
 
         case APP_UART_FIFO_ERROR:
-			UNUSED_VARIABLE(app_uart_put('E'));
-			UNUSED_VARIABLE(app_uart_put('!'));
+            UNUSED_VARIABLE(app_uart_put('E'));
+            UNUSED_VARIABLE(app_uart_put('!'));
             APP_ERROR_HANDLER(p_event->data.error_code);
             break;
 
@@ -859,10 +862,9 @@ static void advertising_start(void)
 int main(void)
 {
     bool erase_bonds;
-	//int i;
 
     uint32_t err_code = NRF_SUCCESS;
-	nrf_drv_i2s_buffers_t const initial_buffers = {
+    nrf_drv_i2s_buffers_t const initial_buffers = {
             .p_tx_buffer = s_buffer_tx,
             .p_rx_buffer = NULL,
         };
@@ -880,7 +882,7 @@ int main(void)
     advertising_init();
     conn_params_init();
 
-	/* I2S */
+    /* I2S */
     bsp_board_init(BSP_INIT_NONE);
     printf("\r\nBOARD Init!!!\r\n");
 
@@ -890,38 +892,38 @@ int main(void)
     // is equivalent to the LRCK frequency).
     config.sdin_pin  = NRF_DRV_I2S_PIN_NOT_USED;
     config.sdout_pin = I2S_SDOUT_PIN;
-	config.mck_pin   = NRF_DRV_I2S_PIN_NOT_USED;
+    config.mck_pin   = NRF_DRV_I2S_PIN_NOT_USED;
     config.mck_setup = NRF_I2S_MCK_32MDIV10;
     config.ratio     = NRF_I2S_RATIO_32X;
     config.channels  = NRF_I2S_CHANNELS_STEREO;
     err_code = nrf_drv_i2s_init(&config, data_handler);
     APP_ERROR_CHECK(err_code);
 
-	CLEAR_LEDS();
-	LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
+    printf("LED Test\r\n");
+    CLEAR_LEDS();
+    LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
 
-	int i, j;
-	uint32_t color = 0;
+    int i, j;
+    uint32_t color = 0;
 
-	for (j=0;j<3;j++) {
-		if (color == COLOR_RED)
-			color = COLOR_GREEN;
-		else if (color == COLOR_GREEN)
-			color = COLOR_BLUE;
-		else
-			color = COLOR_RED;
+    for (j=0;j<3;j++) {
+        if (color == COLOR_RED)
+            color = COLOR_GREEN;
+        else if (color == COLOR_GREEN)
+            color = COLOR_BLUE;
+        else
+            color = COLOR_RED;
 
-		for (i=0; i<NUM_LEDS; i++) {
-			set_led(i, color);
-			LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
-		}
-	}
+        for (i=0; i<NUM_LEDS; i++) {
+            set_led(i, color);
+            LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
+        }
+    }
 
-	printf("DELAY\r\n");
-	nrf_delay_ms(2000);
+    nrf_delay_ms(2000);
 
-	CLEAR_LEDS();
-	LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
+    CLEAR_LEDS();
+    LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
 
     // Start execution.
     printf("\r\nUART started.!!!\r\n");
@@ -932,12 +934,12 @@ int main(void)
     {
         idle_state_handle();
 
-		if(s_light_leds != 0) {
-			s_light_leds = 0;
-			CLEAR_LEDS();
-			parse_input(s_command);
-			LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
-		}
+        if(s_light_leds != 0) {
+            s_light_leds = 0;
+            CLEAR_LEDS();
+            parse_input(s_command);
+            LIGHT_LEDS(initial_buffers, I2S_DATA_BLOCK_WORDS);
+        }
     }
 }
 
