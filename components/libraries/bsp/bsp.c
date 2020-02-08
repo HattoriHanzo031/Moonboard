@@ -237,14 +237,14 @@ static uint32_t bsp_led_indication(bsp_indication_t indicate)
                 bsp_board_led_off(BSP_LED_INDICATE_INDICATE_ADVERTISING);
                 next_delay = indicate ==
                              BSP_INDICATE_ADVERTISING ? ADVERTISING_LED_OFF_INTERVAL :
-                             ADVERTISING_SLOW_LED_OFF_INTERVAL;
+                             ADVERTISING_LED_OFF_INTERVAL;
             }
             else
             {
                 bsp_board_led_on(BSP_LED_INDICATE_INDICATE_ADVERTISING);
                 next_delay = indicate ==
                              BSP_INDICATE_ADVERTISING ? ADVERTISING_LED_ON_INTERVAL :
-                             ADVERTISING_SLOW_LED_ON_INTERVAL;
+                             ADVERTISING_LED_ON_INTERVAL;
             }
 
             m_stable_state = indicate;
