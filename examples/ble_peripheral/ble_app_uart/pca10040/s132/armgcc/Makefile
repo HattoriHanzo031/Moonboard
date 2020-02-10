@@ -311,6 +311,12 @@ flash_softdevice:
 	@echo Flashing: s132_nrf52_6.1.1_softdevice.hex
 	sudo arm-none-eabi-gdb -q -ex 'target extended-remote /dev/ttyACM0' -ex 'monitor swdp_scan' -ex 'attach 1' -ex 'load' -ex 'mon hard_srst' -ex 'detach' -ex 'quit' -ex 'kill' $(SDK_ROOT)/components/softdevice/s132/hex/s132_nrf52_6.1.1_softdevice.hex
 
+# Send pulse on restart pin over the debugger
+restart:
+	@echo Restarting!
+	sudo arm-none-eabi-gdb -q -ex 'target extended-remote /dev/ttyACM0' -ex 'monitor swdp_scan' -ex 'attach 1' -ex 'mon hard_srst' -ex 'detach' -ex 'quit' -ex 'kill'
+
+
 erase:
 	sudo arm-none-eabi-gdb -q -ex 'target extended-remote /dev/ttyACM0' -ex 'monitor swdp_scan' -ex 'attach 1' -ex 'mon erase_mass' -ex 'detach' -ex 'quit' -ex 'kill'
 
