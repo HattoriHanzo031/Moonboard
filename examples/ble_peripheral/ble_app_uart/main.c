@@ -84,6 +84,9 @@
 /* I2S */
 #include "nrf_drv_i2s.h"
 
+/* Set to 1 to prevent from reading the firmware */
+#define READBACK_PROTECTION 0
+
 #define COLOR_BRIGHTNESS     0x10
 #define COLOR_NONE           0x00000000
 #define COLOR_GREEN          (s_color_brightness << 0)
@@ -868,6 +871,16 @@ int main(void)
             .p_tx_buffer = s_buffer_tx,
             .p_rx_buffer = NULL,
         };
+
+// Readback protection
+#if READBACK_PROTECTION
+    if (NRF_UICR->APPROTECT != 0x0)
+    {
+        NRF_NVMC->CONFIG = 0x1;
+        NRF_UICR->APPROTECT = 0x0;
+        NRF_NVMC->CONFIG = 0x0;
+    }
+#endif
 
     // Initialize.
     uart_init();
