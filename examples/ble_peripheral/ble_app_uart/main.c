@@ -135,7 +135,7 @@ static uint8_t m_next_buffers_set = 0;
 #define APP_ADV_INTERVAL                64                                          /**< The advertising interval (in units of 0.625 ms. This value corresponds to 40 ms). */
 #define APP_ADV_DURATION                18000                                       /**< The advertising duration (180 seconds) in units of 10 milliseconds. */
 
-#define APP_ADV_SLOW_INTERVAL           0x0640                                      /**< Slow advertising interval (in units of 0.625 ms. This value corresponds to 1 second). */
+#define APP_ADV_SLOW_INTERVAL           0x0190                                      /**< Slow advertising interval (in units of 0.625 ms. This value corresponds to 250 ms). */
 #define APP_ADV_SLOW_DURATION           BLE_GAP_ADV_TIMEOUT_GENERAL_UNLIMITED       /**< The advertising duration for slow advertising is unlimited. */
 
 
@@ -783,6 +783,8 @@ static void advertising_init(void)
 
     init.srdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
     init.srdata.uuids_complete.p_uuids  = m_adv_uuids;
+
+    init.config.ble_adv_whitelist_enabled = false;
 
     init.config.ble_adv_fast_enabled  = true;
     init.config.ble_adv_fast_interval = APP_ADV_INTERVAL;
